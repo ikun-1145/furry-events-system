@@ -1,0 +1,64 @@
+# ============================================================
+# 兽聚信息聚合系统 · 定时任务（GitHub Actions）
+# 文件: .github/workflows/fetch-furry-events.yml
+#
+# 触发频率: 每天 UTC 02:00（北京时间 10:00）和 14:00（22:00）
+# 所需 Secrets（在仓库 Settings → Secrets → Actions 中配置）:
+#   SUPABASE_FUNCTION_URL  → https://<project-ref>.supabase.co/functions/v1/fetch-furry-events
+#   FUNCTION_SECRET        → 与 Edge Function 环境变量相同的密钥
+# ============================================================
+
+name: Fetch Furry Events
+
+on:
+  # 定时触发：每天 02:00 和 14:00 UTC
+  schedule:
+    - cron: "0 2,14 * * *"
+
+  # 允许在 GitHub Actions 页面手动触发
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "触发原因（可选）"
+        required: false
+        default: "manual"
+
+jobs:
+  trigger-edge-function:
+    name: Trigger Supabase Edge Function
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Call fetch-furry-events Edge Function
+        id: call
+        run: |
+          HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -H "x-function-secret: ${{ secrets.FUNCTION_SECRET }}" \
+            "${{ secrets.SUPABASE_FUNCTION_URL }}")
+
+          echo "HTTP Status: $HTTP_STATUS"
+          echo "Response:"
+          cat /tmp/response.json | jq . || cat /tmp/response.json
+
+          # 如果状态码不是 200，标记失败
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "::error::Edge Function returned $HTTP_STATUS"
+            exit 1
+          fi
+
+          # 检查响应中是否有 errors
+          ERRORS=$(cat /tmp/response.json | jq -r '.errors | length' 2>/dev/null || echo "0")
+          if [ "$ERRORS" -gt 0 ]; then
+            echo "::warning::Function completed with $ERRORS partial error(s)"
+          fi
+
+      - name: Print summary
+        if: always()
+        run: |
+          echo "## 执行摘要" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          cat /tmp/response.json | jq . >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "(no response)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
