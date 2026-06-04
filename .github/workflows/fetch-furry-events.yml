@@ -37,6 +37,7 @@ jobs:
             -X POST \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${{ secrets.FUNCTION_SECRET }}" \
+            -H "x-function-secret: ${{ secrets.FUNCTION_SECRET }}" \
             "${{ secrets.SUPABASE_FUNCTION_URL }}")
 
           echo "HTTP Status: $HTTP_STATUS"
