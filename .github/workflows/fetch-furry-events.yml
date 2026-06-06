@@ -36,7 +36,6 @@ jobs:
           HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
             -X POST \
             -H "Content-Type: application/json" \
-            
             -H "x-function-secret: ${{ secrets.FUNCTION_SECRET }}" \
             "${{ secrets.SUPABASE_FUNCTION_URL }}")
 
