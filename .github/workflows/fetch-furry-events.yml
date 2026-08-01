@@ -5,7 +5,7 @@
 # 触发频率: 每天 UTC 02:00（北京时间 10:00）和 14:00（22:00）
 # 所需 Secrets（在仓库 Settings → Secrets → Actions 中配置）:
 #   SUPABASE_FUNCTION_URL  → https://<project-ref>.supabase.co/functions/v1/fetch-furry-events
-#   FUNCTION_SECRET        → 与 Edge Function 环境变量相同的密钥
+#   FUNCTION_SECRET        →  与 Edge Function 环境变量相同的密钥
 # ============================================================
 
 name: Fetch Furry Events
