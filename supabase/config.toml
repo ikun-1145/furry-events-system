@@ -1,0 +1,8 @@
+project_id = "furry-events-system"
+[functions.fetch-furry-events]
+verify_jwt = true
+[functions.furry-event-search]
+verify_jwt = true
+# Static placeholder / allowlisted public FCC images only; no DB or token access.
+[functions.furry-event-image]
+verify_jwt = false

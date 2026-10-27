@@ -1,0 +1,30 @@
+--- a/ai/furry-events.js
++++ b/ai/furry-events.js
+@@ -69,6 +69,7 @@
+   if (!text) return null;
+   try {
+     const url = new URL(text);
++    if (url.hostname === "furryfusion.net" || url.hostname.endsWith(".furryfusion.net")) return null;
+     return url.protocol === "http:" || url.protocol === "https:"
+       ? url.toString()
+       : null;
+@@ -149,6 +150,8 @@
+   const daysUntil = finiteNumber(raw.days_until ?? raw.daysUntil);
+
+   return {
++    id: raw.id ?? null,
++    source_id: raw.source_id ?? null,
+     name,
+     start_at: startAt,
+     end_at: endAt,
+@@ -187,7 +190,9 @@
+   (Array.isArray(value) ? value : []).forEach(raw => {
+     const event = normalizeFurryEvent(raw);
+     if (!event) return;
+-    const key = `${event.name.toLocaleLowerCase("zh-CN")}|${datePart(event.start_at)}|${event.city}`;
++    const key = event.id != null ? `id:${event.id}`
++      : event.source_id ? `source:${event.source_id}`
++      : `${event.name.toLocaleLowerCase("zh-CN")}|${datePart(event.start_at)}|${event.city}`;
+     const existing = byKey.get(key);
+     if (!existing || eventInformationScore(event) > eventInformationScore(existing)) {
+       byKey.set(key, event);

@@ -1,0 +1,65 @@
+{
+  "captured_at": "2026-10-27T06:12:55.061596+00:00",
+  "git_sha": "9a52d5f0d622c6292d5573e31cca5c471c0dd356",
+  "project_ref": "klyrasrqgxijwrxuoevj",
+  "fetch_function": {
+    "version": 37,
+    "hash": "af50479acf4dc2980f06abc446fd567f8e9bd454bb66e3f41f776e9f4e8bdec4",
+    "verify_jwt": true
+  },
+  "search_function": {
+    "version": 23,
+    "hash": "05f955c5da8d9a577537f678e88dec649fe9a85a2114a5b5c9eed4103537b4d1",
+    "verify_jwt": true
+  },
+  "worker": {
+    "id": "20f9248a-4dc5-458d-82fe-df4d9e9e9765",
+    "source": "wrangler",
+    "strategy": "percentage",
+    "annotations": {
+      "workers/triggered_by": "deployment"
+    },
+    "versions": [
+      {
+        "version_id": "fa60fde3-f3a2-4af2-b083-1fc0b7e624c9",
+        "percentage": 100
+      }
+    ],
+    "created_on": "2026-08-01T08:40:59.290722Z"
+  },
+  "worker_settings": {
+    "placement": {},
+    "compatibility_date": "2026-08-01",
+    "compatibility_flags": [],
+    "usage_model": "standard",
+    "tags": [],
+    "tail_consumers": [],
+    "logpush": false,
+    "observability": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "redact_query_string": false,
+      "logs": {
+        "enabled": true,
+        "head_sampling_rate": 1,
+        "persist": true,
+        "invocation_logs": true
+      },
+      "traces": {
+        "enabled": false,
+        "persist": true,
+        "head_sampling_rate": 1
+      }
+    },
+    "annotations": {
+      "workers/triggered_by": "version_upload"
+    },
+    "bindings": []
+  },
+  "worker_schedules": {
+    "schedules": []
+  },
+  "rows": 32,
+  "active": 8,
+  "migration_versions": 72
+}

@@ -1,0 +1,78 @@
+--- a/supabase/functions/furry-event-search/index.ts
++++ b/supabase/functions/furry-event-search/index.ts
+@@ -1,3 +1,6 @@
++// DO NOT DEPLOY: retired scraper/cache writer. Production v23 and all future
++// activity backend changes are maintained in ikun-1145/furry-events-system.
++// See that repository docs/operations/ROLLOUT.md. This file is historical only.
+ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+ const corsHeaders = {
+--- a/lib/furry_event_api.dart
++++ b/lib/furry_event_api.dart
+@@ -2,6 +2,15 @@
+ import 'package:flutter/foundation.dart';
+ import 'package:http/http.dart' as http;
+ import 'package:supabase_flutter/supabase_flutter.dart';
++
++// Reject retired links in live responses and persisted cross-platform cards.
++String? safeFurryEventUrl(dynamic value) {
++  final uri = Uri.tryParse(value?.toString().trim() ?? '');
++  if (uri == null || !['https', 'http'].contains(uri.scheme) || uri.host.isEmpty) return null;
++  final host = uri.host.toLowerCase();
++  if (host == 'furryfusion.net' || host.endsWith('.furryfusion.net')) return null;
++  return uri.toString();
++}
+
+ // ── 原有单事件模型（保留不变）────────────────────────────────────────────
+
+@@ -287,14 +296,7 @@
+       return (m[camelCaseKey] ?? m[snakeCaseKey])?.toString();
+     }
+
+-    // 表内真实图片在 cover 列（furryfusion 图床，公网可直连、无防盗链）；
+-    // 兼容旧 cover_url 列。早期版本经 *.workers.dev 代理，该域名在国内网络
+-    // 不稳定/易被污染，反而导致图片加载失败，故直接使用原图地址。
+-    String? cover = (m['coverUrl'] ?? m['cover'] ?? m['cover_url'])?.toString();
+-    if (cover != null) {
+-      cover = cover.trim();
+-      if (!cover.startsWith('http')) cover = null;
+-    }
++    final cover = safeFurryEventUrl(m['coverUrl'] ?? m['cover'] ?? m['cover_url']);
+
+     return FurryEventEnriched(
+       name: m['name']?.toString() ?? '',
+@@ -308,7 +310,7 @@
+
+       coverUrl: cover,
+
+-      sourceUrl: (m['sourceUrl'] ?? m['source_url'])?.toString(),
++      sourceUrl: safeFurryEventUrl(m['sourceUrl'] ?? m['source_url']),
+
+       // ✅ 新增字段
+       rawStatus: (m['rawStatus'] ?? m['raw_status'])?.toString(),
+--- a/lib/main.dart
++++ b/lib/main.dart
+@@ -2793,21 +2793,8 @@
+     final city = (event['city'] ?? '').toString();
+     final venue = (event['venue'] ?? event['address'] ?? '').toString();
+
+-    // 直接使用后端返回的代理图片（Worker 已处理防盗链）
+-    String? coverUrl = (event['coverUrl'] ?? event['cover'])?.toString();
+-
+-    if (coverUrl != null) {
+-      coverUrl = coverUrl.trim();
+-      if (coverUrl.isEmpty) coverUrl = null;
+-
+-      // 如果是相对路径（/proxy?...），补全 Worker 域名，避免双斜杠 bug
+-      if (coverUrl != null && coverUrl.startsWith('/proxy')) {
+-        coverUrl =
+-            'https://sunland-data-worker.liuxizekali.workers.dev$coverUrl';
+-      }
+-    }
+-
+-    final sourceUrl = (event['sourceUrl'] ?? event['source_url'])?.toString();
++    final coverUrl = safeFurryEventUrl(event['coverUrl'] ?? event['cover']);
++    final sourceUrl = safeFurryEventUrl(event['sourceUrl'] ?? event['source_url']);
+
+     final rawStatus = (event['raw_status'] ?? '').toString();
+     final daysUntil = event['days_until'];
