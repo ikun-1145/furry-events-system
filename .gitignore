@@ -6,3 +6,10 @@ dist/
 backups/
 .tmp/
 supabase/.temp/
+
+# Never version local credentials, private acceptance output, or database backups.
+.dev.vars
+.dev.vars.*
+fcc-private-backup/
+*readonly-preflight.json
+*real-acceptance.json
