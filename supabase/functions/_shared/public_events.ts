@@ -52,6 +52,13 @@ export function publicEvent(
     cover,
     cover_url: cover,
     coverUrl: cover,
+    detail_available: fccUrl(row.source_url, "detail") !== null,
+    detail_link_status: fccUrl(row.source_url, "detail")
+      ? "available"
+      : "unavailable",
+    detail_link_text: fccUrl(row.source_url, "detail")
+      ? "活动详情"
+      : "暂无详情链接",
     source_url: fccUrl(row.source_url, "detail"),
     sourceUrl: fccUrl(row.source_url, "detail"),
     status: native ?? row.status ?? null,

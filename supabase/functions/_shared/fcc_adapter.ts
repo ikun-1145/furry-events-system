@@ -147,8 +147,13 @@ export type FccSnapshot = {
  * Never claims an upstream transactional snapshot. No absence deactivation is allowed. */
 export async function fetchFccSnapshot(
   token: string,
-  options: { fetchImpl?: typeof fetch; now?: () => Date; pageSize?: number } =
-    {},
+  options: {
+    fetchImpl?: typeof fetch;
+    now?: () => Date;
+    pageSize?: number;
+    maxPages?: number;
+    totalTimeoutMs?: number;
+  } = {},
 ): Promise<FccSnapshot> {
   if (!token.trim()) throw new ContractError("FCC_TOKEN_NOT_CONFIGURED", 503);
   const fetchImpl = options.fetchImpl ?? fetch,
@@ -157,6 +162,17 @@ export async function fetchFccSnapshot(
   if (!Number.isSafeInteger(size) || size < 1 || size > 100) {
     throw new ContractError("FCC_INVALID_PAGE_SIZE");
   }
+  const maxPages = options.maxPages ?? 100,
+    totalTimeoutMs = options.totalTimeoutMs ?? 90000;
+  if (
+    !Number.isSafeInteger(maxPages) || maxPages < 1 || maxPages > 500 ||
+    !Number.isFinite(totalTimeoutMs) || totalTimeoutMs < 1 ||
+    totalTimeoutMs > 90000
+  ) throw new ContractError("FCC_INVALID_LIMITS");
+  const deadline = AbortSignal.timeout(totalTimeoutMs);
+  function checkDeadline() {
+    if (deadline.aborted) throw new ContractError("FCC_TOTAL_TIMEOUT");
+  }
   const started_at = now().toISOString();
   async function pass() {
     let total: number | undefined;
@@ -164,7 +180,9 @@ export async function fetchFccSnapshot(
     const ids = new Set<string>();
     let pages = 0;
     do {
+      checkDeadline();
       const current = ++pages;
+      if (current > maxPages) throw new ContractError("FCC_PAGE_LIMIT");
       const u = new URL(API);
       u.searchParams.set("current", String(current));
       u.searchParams.set("pageSize", String(size));
@@ -177,9 +195,10 @@ export async function fetchFccSnapshot(
           },
           redirect: "error",
           cache: "no-store",
-          signal: AbortSignal.timeout(20000),
+          signal: AbortSignal.any([deadline, AbortSignal.timeout(20000)]),
         });
       } catch {
+        checkDeadline();
         throw new ContractError("FCC_NETWORK_ERROR");
       }
       if (!response.ok) {
@@ -212,6 +231,7 @@ export async function fetchFccSnapshot(
         if (e instanceof ContractError) throw e;
         throw new ContractError("FCC_INVALID_JSON");
       }
+      checkDeadline();
       const p = page(raw, current, size, total);
       total = p.total;
       for (const r of p.data) {
@@ -227,6 +247,7 @@ export async function fetchFccSnapshot(
     };
   }
   const first = await pass(), second = await pass();
+  checkDeadline();
   if (JSON.stringify(first.events) !== JSON.stringify(second.events)) {
     throw new ContractError("FCC_SNAPSHOT_DRIFT");
   }

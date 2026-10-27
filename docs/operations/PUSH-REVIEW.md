@@ -1,4 +1,4 @@
-# GitHub 推送前安全检查（2026-10-27）
+# 历史首轮推送安全检查（2026-10-27；当前加固以REPORT.md为准）
 
 目标：origin/codex/fcc-source-migration；不合并 main、不创建 PR、不操作生产。
 

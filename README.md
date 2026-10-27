@@ -27,6 +27,8 @@
 npm ci
 npm test
 npm run test:db
+# 需要本地Docker；使用内部测试网络和合成数据
+npm run test:postgrest
 npm run typecheck
 npm run build
 npx deno check supabase/functions/fetch-furry-events/index.ts supabase/functions/furry-event-search/index.ts supabase/functions/furry-event-image/index.ts
@@ -35,3 +37,5 @@ npx deno check supabase/functions/fetch-furry-events/index.ts supabase/functions
 默认测试只使用合成活动和本地 PostgreSQL，不需要 FCC Token，不读取生产凭据。
 可通过 `FCC_BACKUP_PATH=/安全的仓库外路径/备份.json npm run test:db` 在本地验证真实备份迁移。
 完整上线与回滚流程见 [ROLLOUT.md](docs/operations/ROLLOUT.md)，实现报告见 [REPORT.md](docs/operations/REPORT.md)。
+
+第三轮加固结果及冻结／恢复步骤以 docs/operations/REPORT.md、ROLLOUT.md 为准。新增只读分页RPC必须与查询函数一起审查部署。

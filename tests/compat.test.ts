@@ -53,3 +53,21 @@ test("client patch suppresses persisted retired covers and links without request
   assert.equal(e.cover, null);
   assert.equal(e.source_url, null);
 });
+
+test("Web card displays no-details state instead of a retired/empty hyperlink", () => {
+  const dom = new JSDOM("<main></main>");
+  const target = dom.window.document.querySelector("main");
+  appendFurryEventMessage({
+    target,
+    message: {
+      furryEvents: [
+        publicEvent(
+          { ...row, source_url: "https://www.furryfusion.net/x" },
+          endpoint,
+        ),
+      ],
+    },
+  });
+  assert.match(target!.textContent!, /暂无详情链接/);
+  assert.equal(target!.querySelector(".furry-event-action.detail"), null);
+});

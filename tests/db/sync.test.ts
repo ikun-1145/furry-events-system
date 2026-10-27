@@ -324,6 +324,11 @@ test("DB independently rejects impossible date and duplicate UUID with rollback"
     }]),
   );
   await assert.rejects(sync(db, [event(1), event(1)]), /DUPLICATE_FCC_ID/);
+  const a = { ...event(1), fcc_id: "abcdefab-0000-4000-8000-000000000001" };
+  await assert.rejects(
+    sync(db, [a, { ...a, fcc_id: a.fcc_id.toUpperCase() }]),
+    /DUPLICATE_FCC_ID/,
+  );
   assert.equal(
     (await db.query("select count(*) from public.furry_events")).rows[0].count,
     "32",
@@ -381,5 +386,89 @@ test("full mocked FCC API -> handler -> PostgreSQL -> query -> legacy aliases", 
   assert.doesNotMatch(
     JSON.stringify(payload),
     /https?:[^\s]*furryfusion[.]net/,
+  );
+});
+
+test("changed-date historical name still blocks automatic insertion; mappings rerun idempotently", async () => {
+  const { mappingSql } = await import("../../scripts/mapping-risk.ts");
+  await assert.rejects(
+    sync(db, [
+      event(1, {
+        name: "历史1",
+        startDate: "2027-01-01T00:00:00Z",
+        endDate: null,
+      }),
+    ]),
+    /HISTORY_MAPPING_REQUIRED/,
+  );
+  const plan = [{ fcc_id: id(1), decision: "link", event_id: "1" }];
+  const sql = mappingSql(plan);
+  await db.query(sql);
+  await db.query(sql);
+  await sync(db, [
+    event(1, {
+      name: "新名称",
+      thumbnail: "fresh.jpg",
+      url: "https://www.furrycons.cn/new",
+    }),
+  ]);
+  const r =
+    (await db.query("select * from public.furry_events where id=1")).rows[0];
+  assert.equal(r.is_active, true);
+  assert.equal(r.source_id, "duplicate_legacy_id");
+  assert.equal(r.cover, "https://images.furrycons.cn/fresh.jpg");
+  assert.equal(r.source_url, "https://www.furrycons.cn/new");
+  assert.equal(
+    (await db.query("select count(*) from furry_private.fcc_identity")).rows[0]
+      .count,
+    "1",
+  );
+});
+test("reviewed mapping SQL rolls back all preceding decisions on conflict", async () => {
+  const { mappingSql } = await import("../../scripts/mapping-risk.ts");
+  await db.query(
+    "insert into furry_private.fcc_identity values($1,2,'reviewed_legacy',now())",
+    [id(2)],
+  );
+  const sql = mappingSql([{ fcc_id: id(1), decision: "link", event_id: "1" }, {
+    fcc_id: id(2),
+    decision: "link",
+    event_id: "3",
+  }]);
+  await assert.rejects(db.query(sql), /MAPPING_CONFLICT/);
+  await db.query("rollback");
+  assert.equal(
+    (await db.query("select count(*) from furry_private.fcc_identity")).rows[0]
+      .count,
+    "1",
+  );
+});
+test("service read RPC pushes filters, keeps null dates and exact large bigint strings", async () => {
+  await db.query(
+    "insert into public.furry_events(id,name,source,city,start_at,is_active) values(9007199254740993,'big','fcc','北京,%',null,true)",
+  );
+  const call = async (c: unknown) =>
+    (await db.query("select public.read_fcc_event_page($1,'0',500) data", [c]))
+      .rows[0].data;
+  const c = {
+    include_inactive: false,
+    city: "北京,%",
+    start: "2026-10-27",
+    end: null,
+    include_undated: true,
+  };
+  const r = await call(c);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].id, "9007199254740993");
+  assert.equal((await call({ ...c, include_undated: false })).length, 0);
+  assert.equal(
+    (await call({ ...c, city: "", include_inactive: true })).length,
+    33,
+  );
+  assert.equal(
+    (await db.query(
+      "select has_function_privilege('anon','public.read_fcc_event_page(jsonb,bigint,integer)','execute') ok",
+    )).rows[0].ok,
+    false,
   );
 });

@@ -76,3 +76,11 @@
 
      final rawStatus = (event['raw_status'] ?? '').toString();
      final daysUntil = event['days_until'];
+@@ -3103,6 +3090,7 @@
+                     ],
+                   ),
+                   const SizedBox(height: 6),
++                  if (sourceUrl == null) const Text('暂无详情链接'),
+                   // 替换天气Row为FutureBuilder
+                   FutureBuilder<FurryEventWeather?>(
+                     future: weatherFuture,

@@ -1,70 +1,58 @@
-# FCC 数据源迁移交付报告（2026-10-27，未上线）
+# FCC 迁移第三轮审查准备报告（2026-10-27，未上线）
 
-## 完成范围
+本轮基于已推送 `29b2ca67ed851a2de0492fe0d413d72df0172f1a`，分支 `codex/fcc-source-migration`；开始时本地与远程一致，main 仍为 `9a52d5f0d622c6292d5573e31cca5c471c0dd356`。最终 SHA 见交付消息／Git 历史。本轮没有调用生产连接器、写生产库、部署函数、操作 Worker、设置仓库变量、发布客户端或触发同步。
 
-本地分支 `codex/fcc-source-migration`，基于 `ikun-1145/furry-events-system@9a52d5f0d622c6292d5573e31cca5c471c0dd356`。最终提交 SHA 由交付消息及 `git rev-parse HEAD` 给出。
+## 修复内容
 
-生产基线：fetch-furry-events v37（verify_jwt=true），furry-event-search v23（verify_jwt=true），Worker 100% 流量版本 `fa60fde3-f3a2-4af2-b083-1fc0b7e624c9`。生产仍然是原版本，**本次没有停止或改变现有生产定时请求**；真正终止旧源流量需要后续授权按上线手册冻结旧链路。
+| 问题 | 实现 |
+| --- | --- |
+| 每条 FCC 数据都需手工决定 | mapping-risk.ts 风险分级：new / needs_review / bound，逐条输出匹配证据、可信度、建议动作、人工确认标记 |
+| 改期活动可能误建新行 | 工具与同步 SQL 均检查历史归档：同名／长度>=3的名称包含、同主办方、同城市同日期；身份信息不足也阻断，待人工 link/distinct |
+| 已绑定 UUID 可能重绑或审核重跑失败 | 保持 UUID→bigint 唯一映射；生成 SQL 与同步共用事务 advisory lock；同决定重跑幂等、不同决定报错、整批回滚，不自动 UPDATE 映射 |
+| 旧链接缺少可理解状态 | 查询增加 detail_available/detail_link_status/detail_link_text；空／退役详情显示“暂无详情链接”，不生成跳转。Web/Flutter 补丁同步展示；图片使用自有稳定回退 |
+| 调度冻结与重试不明确 | 缺省冻结，定时/手动共用开关，main 引用限制，并发排队，curl --retry 0；只用环境变量传递原 Secret，日志不输出完整响应／请求头 |
+| 查询遍历全部来源再过滤 | 新增 service_role 专用 read_fcc_event_page：来源、启用状态、日期及字面子串城市匹配在 SQL 执行；500条 keyset 页；失败整体报错，无静默1000行截断 |
+| bigint select cast 兼容不确定 | 删除 id::text 的 PostgREST select 表达式，改为 SQL 生成 JSON 字符串 id；以真实 PostgREST13+PostgreSQL17+Supabase JS 隔离 HTTP 验证 |
+| 抓取总时长无界 | 单次请求20秒、完整双遍总90秒、每遍最多100页（默认20条/页）；到限失败且不调用 RPC |
 
-已完成：
+## 数据与权限边界
 
-1. 导入生产查询函数、同步函数与共享契约基线、Worker 当前源码、原子 SQL 及版本清单；标记 baseline 禁止部署。
-2. 仓库外备份活动相关数据库结构、函数／权限／RLS／Storage 策略、迁移版本、序列与完整 32 条活动。未导出无关 Auth 数据或项目 Secrets。备份文件权限 0600，目录 0700，未加入 Git。
-3. FCC 唯一新上游、Bearer Secret、完整分页与两次一致性验证、200 业务错误识别、字段规范化。失败不调用同步 RPC；空库存不写库。
-4. 增量迁移：私有归档与 UUID→bigint 映射、显式历史映射／独立活动审阅、原生状态与待定日期、事务互斥和旧快照水位、旧写入 RPC 封禁。无缺失停用分支。
-5. 查询支持 FCC 与历史记录，保留旧字段别名；实际日期为 null，旧别名为“时间待定”；native_status 原样保留、status_known 标明未知状态，raw_status/rawStatus 提供安全文案。
-6. 自有 SVG 占位图；FCC 公共图片通过有界 allowlist 代理，404、超时、错误 MIME、空文件和不可用图片回退。没有任意 URL 代理、Token 转发或旧源兜底。
-7. Worker 保留原服务，提供 health，其余旧代理路径 410；未发现天气／图片业务，未删除服务。
-8. Web 身份去重与旧缓存链接屏蔽补丁；Flutter 旧抓取函数禁止部署标记及缓存 URL 兼容补丁。Flutter 本地标记提交为 `b3a0cd09b41f20396bcbdecbeeb4e3eb4592aa33`，未推送。
-9. 新增仅运行离线检查的 CI，无生产凭据、部署或同步步骤。
+增量 SQL **修改过，必须重新审查**，原迁移尚未在生产执行。不要重放 baseline SQL，不用 db push/reset。
 
-## 数据保留与匹配规则
+- 原32条先完整归档；保留原 ID、is_active、source/source_id、status、日期、名称等。公开退役URL抑制仅涉及活动媒体／链接相关字段，完整原值留在私有归档。
+- 映射后可更新同一内部 ID 的 FCC 封面／详情；历史 is_active 不因取消、延期或缺失而改变。
+- 缺失停用始终关闭，deactivated=0；原子事务、旧快照拒绝、UUID去重保留。旧写 RPC 被撤权并抛错，Worker 无任何旧上游 fallback。
+- 新只读 RPC 是 SECURITY INVOKER、固定 search_path，仅 service_role 可执行，不开放私有表，不改其他业务 RLS 或 Storage Policy。
+- 查询保留 include_inactive、空日期、原生状态、旧字段别名与同名同日不同 ID。城市匹配使用 SQL strpos(lower(...))，百分号／逗号按字面值，无 PostgREST OR 拼接注入。
 
-32 条历史行全部先归档，现有 bigint ID、is_active、source、source_id 和旧 status 不变。只有公开退役链接被抑制，完整原始行留在私有归档中。没有删除历史活动。
-
-已有映射按 UUID 更新，因此改名、改期不会换 ID；同名同日的不同 FCC UUID 可分别建行。历史重复 source_id 不参与匹配。命中历史同名同日而缺少明确决定时，整次同步回滚；人工使用离线 mapping-plan 工具选择绑定历史 ID 或确认是独立活动。不能依赖模糊匹配擅自合并。
-
-匹配到历史行后仍不改变其 is_active，FCC 取消／延期状态与行是否在聚合器启用分别保留。未覆盖历史行完全不随同步变化。
-
-## 自动化证据
+## 验证结果
 
 | 检查 | 结果 |
 | --- | --- |
-| `npm test` | 27/27；分页、失败、200 业务错误、空列表、Token、限流、状态、空日期、查询别名、图片、Worker、Web DOM |
-| `FCC_BACKUP_PATH=… npm run test:db` | 14/14；本地 PostgreSQL 17.10，包括真实 32 条备份恢复并执行增量迁移 |
-| PostgreSQL 集成场景 | 同名同日、改名改期、历史重复 ID、缺失不停用、显式历史映射、并发锁、旧快照、事务回滚、ACL/RLS、端到端模拟 FCC→RPC→查询 |
-| Web 原有领域测试 | 8/8；在独立 worktree 应用 Web 补丁后运行 `node --test tests/ai-furry-events.test.mjs` |
-| `npm run typecheck` | 通过 |
-| `npx deno check` 三个 Edge 入口 | 通过 |
-| `npx deno lint supabase/functions workers/sunland-data-worker/src` | 通过 |
-| `npm run build` | Worker bundle 构建通过 |
-| Web／Flutter 补丁 `git apply --check` | 均通过（精确基准／隔离副本） |
-| `npm audit --omit=dev` | 0 漏洞 |
-| `git diff --check`、凭据模式检查 | 通过；未发现生产 Token／JWT／secret key |
+| npm test | 45/45：原有测试+风险分级/输入校验/冻结/超时/分页失败/链接状态等 |
+| FCC_BACKUP_PATH=… npm run test:db | 17/17：本地 PostgreSQL17.10，含真实32条备份恢复、8条启用保留、映射重跑、冲突回滚、改期拦截与链接更新 |
+| npm run test:postgrest | 1/1：真实 PostgREST13.0.8 + PostgreSQL17容器 + Supabase JS，经隔离HTTP读取1500条、4页、>2^53 bigint精确字符串、匿名拒绝、非法页大小拒绝 |
+| Web 既有领域测试 | 8/8，独立worktree应用新补丁后执行 |
+| Web/Flutter git apply --check | 均通过；没有发布 |
+| TypeScript / 三个Edge入口Deno Check / Deno lint | 通过 |
+| Worker bundle / bash -n / Actions YAML结构和冻结行为测试 | 通过 |
+| npm audit --omit=dev | 0漏洞 |
+| 提交前凭据、个人信息、备份和Git差异检查 | 见最终推送核验结果 |
 
-本地 PostgreSQL 17.10 与线上 17.4.1 同主版本，但不等价于 Supabase 完整运行环境。默认 CI 不包含私有真实备份，因此只跳过可选备份测试；其余数据库测试仍执行。
+PostgREST测试只在内部Docker测试网络运行，不使用生产URL／数据库凭据；本地测试JWT和数据库连接仅为合成夹具。容器在 finally 清理。Docker不可用时应明确失败，不把语法验证写成通过。
 
-Web 使用实际解析器及卡片模块的副本做 DOM 断言；验证延期文案、待定日期、两条同名活动、退役图片／链接屏蔽。没有可调用的 Browser 运行时，本次不宣称截图、交互浏览器或生产静态文件验收。没有 Flutter/Dart SDK，不宣称 Flutter 分析／构建／真机测试通过。
+## 仍然未完成
 
-## 备份位置与校验
+**代码准备与隔离验证完成，不代表生产已验收。** FCC_API_TOKEN 据用户确认已配置在生产；本地没有该值，本轮不读取／导出它，真实FCC权限、分页、字段、状态分布、图片CDN和详情链接仍未验收。
 
-仓库外文件：`/workspace/fcc-private-backup/2026-10-27-furry-events.json`。
-SHA-256：`73c298985a0fcf5035be6145cabe50ee74b113c8a7b2ead0a8fb6806ba7d2356`。
+真实候选映射仍需完整样本及最新历史／已有identity导出。new是基于有限证据的自动分类，并非证明不存在语义上相同的活动；改名且改期、主办方城市同时变化可能无法自动识别，首批分类仍应抽查。needs_review 必须人工决定；同名同日、改期同名等未经审核会被数据库独立拦截。
 
-这是活动子系统的结构和数据备份，不是整个共享 Supabase 项目所有业务的完整物理备份。生产上线前仍须按平台流程确认项目级恢复能力并重新备份。
+Flutter SDK／真机及浏览器视觉验证未做。旧安装包和缓存不能靠后端远程消除，必须发布补丁并明确最低版本／缓存策略。Worker退役前仍须复核当前路由／调用日志；历史源码只发现活动代理，不据此断言生产永远无新调用方。
 
-## 未完成的真实验证／上线阻塞
+最近只读观察为同步v38／查询v24，代码包与旧版v37/v23基线相同。本轮未重新读取生产状态，正式切换前须重新比对；不能把旧版本号当作当前保证。
 
-- FCC_API_TOKEN 未配置、未取得，本次未尝试绕过鉴权；真实权限、分页／字段样本、图片 CDN 和详情规则待只读验证。
-- 32 条历史活动与 FCC 实际 UUID 的逐条映射待取得完整 FCC 样本后审阅。当前不能编造映射。
-- 两次一致遍历不能保证上游事务快照；本次缺失停用始终禁用。
-- Web／Flutter 发布前需分别应用兼容补丁并验收。旧安装包与已有缓存仍可能请求旧域名；后端不能远程擦除客户端缓存。需要最低版本／缓存策略。
-- Flutter SDK／支持设备与浏览器视觉检查待完成；线上 Web 曾返回 403，不能据源码测试推断生产页面已更新。
-- 公开图片函数为新端点，需授权后先部署，随后部署查询函数。FCC 未知图片域名会显示占位图，不会放宽验证自行访问。
-- 生产 RLS 和查询鉴权没有修改；新私有表也没有客户端访问授权。线上旧查询 RPC 的历史漂移仍保留，未擅自清理。
+## 上线及回滚
 
-## 上线与回滚
+严格按 [ROLLOUT.md](ROLLOUT.md)执行冻结、清理在途、重新备份、真实只读验收、映射审查、增量SQL、图片/查询/同步部署、客户端验收与一次手动同步。任何门槛不满足保持冻结。
 
-完整顺序与 Token 配置见 [ROLLOUT.md](ROLLOUT.md)。核心顺序：冻结旧触发／等待在途任务→退役 Worker 旧代理→审阅并执行增量迁移→图片函数→安全查询→FCC Secret 与只读验证／映射→新同步函数→客户端兼容验收→授权一次手动同步→恢复定时。
-
-回滚优先冻结同步，保留数据和安全查询；不删除 FCC 行，不重新启用旧源，不恢复旧 Worker／抓取函数，不把原始退役 URL 放回公开表。生产数据修复必须另行审阅并授权。
+回滚优先停止写入、保持安全查询和数据；不恢复旧源、旧代理或公开退役URL，不删除历史或新FCC行。数据库修复须独立审核与授权。

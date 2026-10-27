@@ -107,7 +107,10 @@ export function createSyncHandler(
 }
 export function createSearchHandler(
   deps: {
-    readRows: () => Promise<EventRow[]>;
+    readRows: (
+      payload: Record<string, unknown>,
+      now: Date,
+    ) => Promise<EventRow[]>;
     imageEndpoint: string;
     now?: () => Date;
   },
@@ -117,11 +120,9 @@ export function createSearchHandler(
     if (rejected) return rejected;
     try {
       const p = await body(req);
-      const rows = searchRows(
-        await deps.readRows(),
-        p,
-        deps.now?.() ?? new Date(),
-      );
+      const now = deps.now?.() ?? new Date();
+      searchRows([], p, now); // Validate before any DB read.
+      const rows = searchRows(await deps.readRows(p, now), p, now);
       return json({
         events: rows.map((r) => publicEvent(r, deps.imageEndpoint)),
         total: rows.length,

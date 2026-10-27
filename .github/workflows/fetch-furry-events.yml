@@ -1,68 +1,30 @@
-# ============================================================
-# 兽聚信息聚合系统 · 定时任务（GitHub Actions）
-# 文件: .github/workflows/fetch-furry-events.yml
-#
-# 触发频率: 每两天 UTC 02:00（北京时间/新加坡时间 10:00）
-# 所需 Secrets（在仓库 Settings → Secrets → Actions 中配置）:
-#   SUPABASE_FUNCTION_URL       → https://<project-ref>.supabase.co/functions/v1/fetch-furry-events
-#   SUPABASE_SERVICE_ROLE_KEY   → Supabase service role key
-#   FUNCTION_SECRET             → 与 Edge Function 环境变量相同的密钥
-# ============================================================
-
 name: Fetch Furry Events
-
+# Odd dates of each month at 02:00 UTC; NOT a rolling 48-hour interval.
 on:
   schedule:
-    - cron: "0 2 */2 * *"
-
+    - cron: '0 2 */2 * *'
   workflow_dispatch:
     inputs:
       reason:
-        description: "触发原因（可选）"
+        description: 'Reason (does not override freeze)'
         required: false
-        default: "manual"
-
+permissions:
+  contents: read
+concurrency:
+  group: furry-production-sync
+  cancel-in-progress: false
 jobs:
   trigger-edge-function:
-    name: Trigger Supabase Edge Function
+    # Fail closed for BOTH events. Missing variable means frozen.
+    if: ${{ vars.FCC_SYNC_ENABLED == 'true' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
-
     steps:
-      - name: Call fetch-furry-events Edge Function
-        id: call
-        run: |
-          SYNC_TRIGGER="scheduled"
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            SYNC_TRIGGER="manual"
-          fi
-
-          HTTP_STATUS=$(curl --silent --show-error             --output /tmp/response.json             --write-out "%{http_code}"             --connect-timeout 10             --max-time 120             --retry 2             --retry-delay 3             --retry-all-errors             --request POST             --header "Content-Type: application/json"             --header "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}"             --header "x-function-secret: ${{ secrets.FUNCTION_SECRET }}"             --header "x-sync-trigger: $SYNC_TRIGGER"             --data '{"allow_empty":false}'             "${{ secrets.SUPABASE_FUNCTION_URL }}")
-
-          echo "HTTP Status: $HTTP_STATUS"
-          echo "Response:"
-          jq . /tmp/response.json || cat /tmp/response.json
-
-          if [ "$HTTP_STATUS" -ne 200 ]; then
-            echo "::error::Edge Function returned $HTTP_STATUS"
-            exit 1
-          fi
-
-          SUCCESS=$(jq -r '.success // false' /tmp/response.json 2>/dev/null || echo "false")
-          if [ "$SUCCESS" != "true" ]; then
-            echo "::error::Edge Function did not report success"
-            exit 1
-          fi
-
-          ERRORS=$(jq -r '(.errors // []) | length' /tmp/response.json 2>/dev/null || echo "0")
-          if [ "$ERRORS" -gt 0 ]; then
-            echo "::warning::Function completed with $ERRORS partial error(s)"
-          fi
-
-      - name: Print summary
-        if: always()
-        run: |
-          echo "## 执行摘要" >> "$GITHUB_STEP_SUMMARY"
-          echo '~~~json' >> "$GITHUB_STEP_SUMMARY"
-          jq . /tmp/response.json >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "(no response)" >> "$GITHUB_STEP_SUMMARY"
-          echo '~~~' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v4
+      - name: Call approved FCC sync once
+        env:
+          FCC_SYNC_ENABLED: ${{ vars.FCC_SYNC_ENABLED }}
+          SUPABASE_FUNCTION_URL: ${{ secrets.SUPABASE_FUNCTION_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          FUNCTION_SECRET: ${{ secrets.FUNCTION_SECRET }}
+        run: bash scripts/trigger-sync.sh

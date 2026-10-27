@@ -63,7 +63,7 @@ $$;
 revoke all on function public.sync_furry_events(jsonb,timestamptz,boolean) from public,anon,authenticated,service_role;
 
 create function public.sync_fcc_events(events jsonb,started_at timestamptz,completed_at timestamptz,complete boolean)
-returns jsonb language plpgsql security invoker set search_path='' as $$
+returns jsonb language plpgsql security invoker set search_path='' set lock_timeout='5s' as $$
 declare
   item jsonb; internal_id bigint; mapped_kind text; n integer; upserts integer:=0;
   last_start timestamptz; required_fields text[] := array[
@@ -81,7 +81,7 @@ begin
   if n>10000 then raise exception 'SNAPSHOT_TOO_LARGE'; end if;
   -- Empty FCC inventory must not change legacy data or the last successful watermark.
   if n=0 then return jsonb_build_object('upserted',0,'deactivated',0,'empty',true); end if;
-  if exists(select 1 from jsonb_array_elements(events) x group by x->>'fcc_id' having count(*)>1) then raise exception 'DUPLICATE_FCC_ID'; end if;
+  if exists(select 1 from jsonb_array_elements(events) x group by (x->>'fcc_id')::uuid having count(*)>1) then raise exception 'DUPLICATE_FCC_ID'; end if;
   for item in select value from jsonb_array_elements(events) loop
     if jsonb_typeof(item)<>'object' or not item ?& required_fields then raise exception 'INVALID_EVENT_CONTRACT'; end if;
     if jsonb_typeof(item->'fcc_id')<>'string' or jsonb_typeof(item->'name')<>'string' or nullif(btrim(item->>'name'),'') is null
@@ -102,8 +102,15 @@ begin
     select event_id,mapping_kind into internal_id,mapped_kind from furry_private.fcc_identity where fcc_id=(item->>'fcc_id')::uuid;
     if internal_id is null then
       -- Never guess identity from a duplicate historical source_id or name+date alone.
-      if exists(select 1 from public.furry_events e where e.source<>'fcc' and lower(btrim(e.name))=lower(btrim(item->>'name'))
-         and (left(e.start_at,10) is not distinct from left(item->>'start_at',10)))
+      if (nullif(btrim(item->>'city'),'') is null or nullif(btrim(item->>'organization'),'') is null
+        or exists(select 1 from furry_private.legacy_archive a where
+          lower(btrim(a.row_data->>'name'))=lower(btrim(item->>'name'))
+          or (length(btrim(a.row_data->>'name'))>=3 and length(btrim(item->>'name'))>=3 and
+            (strpos(lower(btrim(a.row_data->>'name')),lower(btrim(item->>'name')))>0
+             or strpos(lower(btrim(item->>'name')),lower(btrim(a.row_data->>'name')))>0))
+          or (nullif(btrim(a.row_data->>'organization'),'') is not null and lower(btrim(a.row_data->>'organization'))=lower(btrim(item->>'organization')))
+          or (nullif(btrim(a.row_data->>'city'),'') is not null and lower(btrim(a.row_data->>'city'))=lower(btrim(item->>'city'))
+              and left(a.row_data->>'start_at',10)=left(item->>'start_at',10))))
          and not exists(select 1 from furry_private.fcc_distinct_decisions where fcc_id=(item->>'fcc_id')::uuid)
       then raise exception 'HISTORY_MAPPING_REQUIRED'; end if;
       insert into public.furry_events(source_id,source,name,full_name,start_at,end_at,city,province,address,venue,cover,source_url,detail,organization,
@@ -133,4 +140,20 @@ end;
 $$;
 revoke all on function public.sync_fcc_events(jsonb,timestamptz,timestamptz,boolean) from public,anon,authenticated;
 grant execute on function public.sync_fcc_events(jsonb,timestamptz,timestamptz,boolean) to service_role;
+-- Service-only projection: bigint is converted by PostgreSQL, not JS or select casts.
+create function public.read_fcc_event_page(p_criteria jsonb,p_after_id bigint,p_limit integer)
+returns jsonb language plpgsql stable security invoker set search_path='' as $$
+begin
+ if p_limit is null or p_after_id is null or p_limit<1 or p_limit>500 or p_after_id<0 or p_criteria is null or jsonb_typeof(p_criteria)<>'object' then raise exception 'INVALID_QUERY_PAGE'; end if;
+ return (select coalesce(jsonb_agg((to_jsonb(q)-'raw_json'-'source_path') || jsonb_build_object('id',q.id::text) order by q.id),'[]'::jsonb)
+ from (select e.* from public.furry_events e where e.id>p_after_id
+  and e.source in ('fcc','furfantasia_event_data','legacy')
+  and (coalesce((p_criteria->>'include_inactive')::boolean,false) or e.is_active)
+  and (coalesce(p_criteria->>'city','')='' or exists(select 1 from unnest(array[e.address,e.province,e.city]) v where strpos(lower(v),p_criteria->>'city')>0))
+  and (((e.start_at is null or e.start_at='') and coalesce((p_criteria->>'include_undated')::boolean,false))
+    or (left(e.start_at,10)>=p_criteria->>'start' and (p_criteria->>'end' is null or left(e.start_at,10)<p_criteria->>'end')))
+  order by e.id limit p_limit) q);
+end $$;
+revoke all on function public.read_fcc_event_page(jsonb,bigint,integer) from public,anon,authenticated;
+grant execute on function public.read_fcc_event_page(jsonb,bigint,integer) to service_role;
 commit;
