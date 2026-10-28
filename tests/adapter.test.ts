@@ -118,7 +118,7 @@ test("null dates and every native state are retained; unknown is explicit", () =
     assert.equal(r.status_known, status !== "futureState");
   }
 });
-test("invalid UUID, name, impossible date, reversed range, region and place reject", () => {
+test("invalid UUID, name, impossible date, reversed range and region reject", () => {
   for (
     const change of [
       { id: "no" },
@@ -126,9 +126,44 @@ test("invalid UUID, name, impossible date, reversed range, region and place reje
       { startDate: "2026-02-30T00:00:00Z" },
       { endDate: "2020-01-01T00:00:00Z" },
       { region: {} },
-      { place: null },
     ]
   ) assert.throws(() => normalizeFccEvent(raw(1, change)));
+});
+test("documented null relations retain events without fabricated relation data", () => {
+  for (const changes of [{ place: null }, { organization: null }, {
+    place: null, organization: null,
+  }]) {
+    const e = normalizeFccEvent(raw(1, changes));
+    assert.equal(e.fcc_id, raw(1).id);
+    assert.equal(e.venue, changes.place === null ? null : "会场");
+    assert.equal(e.organization, changes.organization === null ? null : "组织");
+    assert.equal(e.address, "会展中心");
+  }
+});
+test("required relation keys reject missing, array and scalar values", () => {
+  for (const key of ["place", "organization"]) {
+    const missing: Record<string, unknown> = raw(1);
+    delete missing[key];
+    for (const event of [missing, ...[undefined, [], "venue", 1, true].map(
+      (value) => raw(1, { [key]: value }),
+    )]) {
+      assert.throws(() => normalizeFccEvent(event), /FCC_INVALID_RELATION/);
+    }
+  }
+});
+test("null relation support does not weaken nested field validation", () => {
+  for (const changes of [
+    { place: { name: 1 } },
+    { place: { address: [] } },
+    { organization: { name: false } },
+    { place: null, organization: { name: 1 } },
+    { organization: null, place: { name: [] } },
+  ]) assert.throws(() => normalizeFccEvent(raw(1, changes)), /FCC_INVALID_/);
+});
+test("two-pass synthetic snapshot retains a real-shape null-place event", async () => {
+  const r = await get(api([raw(1, { place: null }), raw(2)], 2));
+  assert.equal(r.events.length, 2);
+  assert.equal(r.events.find((e) => e.fcc_id === raw(1).id)?.venue, null);
 });
 test("untrusted/retired URLs become null", () => {
   const e = normalizeFccEvent(

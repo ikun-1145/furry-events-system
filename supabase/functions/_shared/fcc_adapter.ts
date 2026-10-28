@@ -68,20 +68,25 @@ export function normalizeFccEvent(raw: unknown): FurryEvent {
   if (start && end && Date.parse(end) < Date.parse(start)) {
     throw new ContractError("FCC_INVALID_DATE_RANGE");
   }
-  if (!isObject(raw.place) || !isObject(raw.organization)) {
+  // OpenEventDto requires both keys, but explicitly allows null relations.
+  // Missing fields, arrays and scalars remain contract failures.
+  if (
+    (raw.place !== null && !isObject(raw.place)) ||
+    (raw.organization !== null && !isObject(raw.organization))
+  ) {
     throw new ContractError("FCC_INVALID_RELATION");
   }
   const address = str(raw.address, "address", false, 1000),
     region = str(raw.region, "region", false, 300);
   const thumb = str(raw.thumbnail, "thumbnail", false, 2048),
     url = str(raw.url, "url", false, 2048);
-  const org = raw.organization.name === undefined
+  const org = raw.organization?.name === undefined
     ? null
     : str(raw.organization.name, "organization", false, 300);
-  const venue = raw.place.name === undefined
+  const venue = raw.place?.name === undefined
     ? null
     : str(raw.place.name, "place", false, 1000);
-  if (raw.place.address !== undefined) {
+  if (raw.place !== null && raw.place.address !== undefined) {
     str(raw.place.address, "place_address", false, 1000);
   }
   // Region's decomposition is undocumented. Keep the full value, don't guess province/city.

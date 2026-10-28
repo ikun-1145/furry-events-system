@@ -15,3 +15,5 @@
 未知状态保留原字符串且 status_known=false。新增无关字段允许存在；已知字段类型变化、缺失必需字段、无效日期与重复 UUID 失败关闭。图片或详情地址不在允许范围时，抑制链接或使用占位图。
 
 文档没有提供一致快照游标，也未确认图片相对地址的真实样本。两次相同完整遍历是漂移检查，不能据此启用停用机制。所有真实 API 样本仍待 Token 验证。
+
+2026-10-28 关联字段复查：官方原始契约 https://api.furrycons.cn/open/docs/openapi.json 的 OpenEventDto 将 place、organization 标为 required，但 anyOf 允许 DTO 或显式 null（nullable:true、enum:[null]）；不是允许缺失键或任意类型。真实第一页观察到一条 place:null，已修正此前过严的关联非空检查。网页“DTO | object”的展示未直观表达 null 分支。完整真实分页尚未验收，详见 [关联字段诊断](FCC-RELATION-DIAGNOSIS.md)。
