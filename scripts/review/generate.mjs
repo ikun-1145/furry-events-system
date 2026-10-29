@@ -1,0 +1,20 @@
+import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import path from 'node:path';
+const [source,out]=process.argv.slice(2);if(!source||!out)throw Error('Usage: node scripts/review/generate.mjs SNAPSHOT_DIR OUTPUT_DIR');
+const load=async n=>JSON.parse(await readFile(path.join(source,n),'utf8'));
+const [history,events,candidates,result]=await Promise.all(['history.json','events.json','historical-candidates.json','result.json'].map(load));
+if(result.status!=='passed'||history.rows.length!==32||events.length!==516||candidates.history.length!==32)throw Error('SNAPSHOT_INCOMPLETE');
+const byHistory=new Map(history.rows.map(x=>[String(x.id),x])),byEvent=new Map(events.map(x=>[x.fcc_id,x]));
+if(byHistory.size!==32||byEvent.size!==516)throw Error('DUPLICATE_IDS');
+const fields=(x)=>({name:x.name??null,start_at:x.start_at??null,end_at:x.end_at??null,city:x.city??null,venue:x.venue??null,organization:x.organization??null});
+const rows=candidates.history.map(c=>{const h=byHistory.get(String(c.historical_id));if(!h)throw Error('HISTORY_MISSING');return {id:String(h.id),...fields(h),is_active:h.is_active===true,classification:c.classification,flags:c.flags,candidates:c.candidates.map((x,i)=>{const e=byEvent.get(x.fcc_id);if(!e)throw Error('FCC_CANDIDATE_MISSING');return {fcc_id:e.fcc_id,...fields(e),status:e.native_status,evidence:x.evidence,flags:x.flags,strength:x.strength,rank:i+1}})}});
+if(new Set(rows.map(x=>x.id)).size!==32)throw Error('INVALID_HISTORY');
+const snapshot={schema:'fcc-review-evidence-v1',snapshot_time:result.generated_at??"2026-10-28（精确采集时间未记录）",scope:'双遍FCC规范化快照与只读历史快照；不会自动关联',rows};
+const evidence=JSON.stringify(snapshot);const evidenceId=createHash('sha256').update(evidence).digest('hex');
+// Guard against upstream data echoing a credential; never disclose the value.
+if(process.env.FCC_API_TOKEN && evidence.includes(process.env.FCC_API_TOKEN))throw Error('CREDENTIAL_TEXT_IN_EVIDENCE');
+const template=await readFile(new URL('./review-template.html',import.meta.url),'utf8');
+const encoded=JSON.stringify({evidence_id:evidenceId,...snapshot}).replace(/</g,'\\u003c').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');
+await mkdir(out,{recursive:true,mode:0o700});await writeFile(path.join(out,'evidence.json'),evidence,{mode:0o600,flag:'wx'});await writeFile(path.join(out,'review.html'),template.replace('/* REVIEW_DATA */',`const DATA=${encoded};`),{mode:0o600,flag:'wx'});
+console.log(JSON.stringify({records:rows.length,candidates:rows.reduce((n,x)=>n+x.candidates.length,0),output:out,evidence_id:evidenceId}));
