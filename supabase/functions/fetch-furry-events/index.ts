@@ -20,7 +20,6 @@ const handler = createSyncHandler({
     if (error) {
       const safeCodes = [
         "STALE_SNAPSHOT",
-        "HISTORY_MAPPING_REQUIRED",
         "INCOMPLETE_SNAPSHOT",
       ];
       const code = safeCodes.find((code) => error.message === code);

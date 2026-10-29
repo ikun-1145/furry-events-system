@@ -68,21 +68,21 @@ export function createSyncHandler(
         fetchImpl: deps.fetchImpl,
         now: deps.now,
       });
-      // API or validation failures never reach this boundary. Empty inventory is a no-op.
+      // An empty inventory is not a successful replacement and must never call the DB.
       if (snapshot.events.length === 0) {
-        return json({
-          success: true,
-          source: "fcc",
-          fetched: 0,
-          upserted: 0,
-          deactivated: 0,
-          empty: true,
-          errors: [],
-        });
+        throw new ContractError("FCC_EMPTY_SNAPSHOT", 409);
       }
+      // PostgreSQL text/jsonb rejects U+0000 before the RPC can report a safe
+      // error. Normalized events have only scalar fields; do not log content.
+      if (snapshot.events.some((event) =>
+        Object.values(event).some((value) =>
+          typeof value === "string" && value.includes("\0")
+        )
+      )) throw new ContractError("FCC_POSTGRES_NUL", 422);
       const result = await deps.sync(snapshot);
       if (
-        !isObject(result) || result.deactivated !== 0 ||
+        !isObject(result) || !Number.isSafeInteger(result.deactivated) ||
+        Number(result.deactivated) < 0 ||
         result.upserted !== snapshot.events.length
       ) throw new ContractError("INVALID_SYNC_RESULT", 500);
       return json({

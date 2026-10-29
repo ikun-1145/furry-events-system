@@ -36,6 +36,27 @@ export type ReadPage = (
     p_limit: number;
   },
 ) => Promise<unknown>;
+/** All database pages are collected within a single read-only RPC statement.
+ * This prevents a source switch or sync commit from splitting one response. */
+export async function readAtomicRows(
+  read: (query: ReturnType<typeof criteria>) => Promise<unknown>,
+  p: Record<string, unknown>,
+  now: Date,
+): Promise<EventRow[]> {
+  const data = await read(criteria(p, now));
+  if (!Array.isArray(data) || data.length > 10000) {
+    throw Error("INVALID_DATABASE_PAGE");
+  }
+  let after = 0n;
+  for (const e of data) {
+    if (
+      !isObject(e) || typeof e.id !== "string" || !/^\d+$/.test(e.id) ||
+      BigInt(e.id) <= after
+    ) throw Error("INVALID_DATABASE_ID");
+    after = BigInt(e.id);
+  }
+  return data;
+}
 export async function readFilteredRows(
   read: ReadPage,
   p: Record<string, unknown>,

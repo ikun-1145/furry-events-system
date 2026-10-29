@@ -63,7 +63,7 @@ test("real PostgREST 13 + PostgreSQL 17: service-only filtered RPC, bigint >2^53
     assert.equal(ready, true);
     const shape = await readFile("tests/db/production-shape.sql", "utf8"),
       migration = await readFile(
-        "supabase/migrations/20261027061449_fcc_safe_ingestion.sql",
+        "sql/archive/20261027061449_fcc_safe_ingestion.sql",
         "utf8",
       );
     docker(

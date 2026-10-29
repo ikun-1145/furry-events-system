@@ -162,8 +162,8 @@ test("workflow YAML fail-closed gate shared by manual and cron, concurrency queu
   );
   assert.equal(y.concurrency["cancel-in-progress"], false);
   const sh = await readFile("scripts/trigger-sync.sh", "utf8");
-  assert.match(sh, /--retry 0/);
-  assert.doesNotMatch(sh, /jq \.|cat "\$response_file"/);
+  assert.match(sh, /exec python3 scripts\/fcc-manual-trigger\.py/);
+  assert.doesNotMatch(sh, /--header|curl --/);
 });
 test("frozen scheduled and manual runs never access network even with secrets configured", () => {
   for (const event of ["schedule", "workflow_dispatch"]) {
@@ -179,12 +179,12 @@ test("frozen scheduled and manual runs never access network even with secrets co
     assert.match(r.stdout, /frozen/);
   }
 });
-test("trigger succeeds once with sanitized logs; ambiguous failure is not retried", async () => {
-  const d = await mkdtemp(path.join(tmpdir(), "fcc-curl-"));
+test("unfrozen workflow invokes the bounded trigger once without secrets in arguments", async () => {
+  const d = await mkdtemp(path.join(tmpdir(), "fcc-trigger-"));
   try {
     await writeFile(
-      path.join(d, "curl"),
-      '#!/bin/bash\nprintf x >> "$CALLS_FILE"\nwhile [[ $# -gt 0 ]]; do if [[ "$1" == --output ]]; then shift; out="$1"; fi; shift; done\nprintf \'{"success":true,"source":"fcc","deactivated":0,"errors":[],"extra":"fixture-sensitive"}\' > "$out"\nprintf 200\n',
+      path.join(d, "python3"),
+      '#!/bin/bash\nprintf "%s" "$*" > "$CALLS_FILE"\nexit "${MOCK_EXIT:-0}"\n',
       { mode: 0o700 },
     );
     const r = spawnSync("bash", ["scripts/trigger-sync.sh"], {
@@ -203,7 +203,7 @@ test("trigger succeeds once with sanitized logs; ambiguous failure is not retrie
     });
     assert.equal(r.status, 0);
     assert.doesNotMatch(r.stdout + r.stderr, /fixture-sensitive/);
-    assert.equal(await readFile(path.join(d, "calls"), "utf8"), "x");
+    assert.equal(await readFile(path.join(d, "calls"), "utf8"), "scripts/fcc-manual-trigger.py");
   } finally {
     await rm(d, { recursive: true, force: true });
   }

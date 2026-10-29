@@ -19,7 +19,7 @@ const connect = () =>
   });
 const migration = await readFile(
   new URL(
-    "../../supabase/migrations/20261027061449_fcc_safe_ingestion.sql",
+    "../../sql/archive/20261027061449_fcc_safe_ingestion.sql",
     import.meta.url,
   ),
   "utf8",

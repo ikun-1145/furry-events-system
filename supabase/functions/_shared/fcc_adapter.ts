@@ -89,6 +89,11 @@ export function normalizeFccEvent(raw: unknown): FurryEvent {
   if (raw.place !== null && raw.place.address !== undefined) {
     str(raw.place.address, "place_address", false, 1000);
   }
+  // FCC specifies detail as a required string or null. Preserve it exactly;
+  // the response size limit applies independently of the field contract.
+  if (raw.detail !== null && typeof raw.detail !== "string") {
+    throw new ContractError("FCC_INVALID_DETAIL");
+  }
   // Region's decomposition is undocumented. Keep the full value, don't guess province/city.
   return {
     fcc_id: raw.id.toLowerCase(),
@@ -102,10 +107,7 @@ export function normalizeFccEvent(raw: unknown): FurryEvent {
     venue,
     cover: fccUrl(thumb, "image"),
     source_url: fccUrl(url, "detail"),
-    detail: str(raw.detail, "detail")?.replace(
-      /https?:\/\/[^\s<>"']*furryfusion\.net[^\s<>"']*/gi,
-      "[retired link]",
-    ) ?? null,
+    detail: raw.detail,
     organization: org,
     native_status: status,
     status_known: (FCC_STATUSES as readonly string[]).includes(status),

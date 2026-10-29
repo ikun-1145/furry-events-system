@@ -175,6 +175,17 @@ test("untrusted/retired URLs become null", () => {
   assert.equal(e.cover, null);
   assert.equal(e.source_url, null);
 });
+test("detail preserves valid FCC strings, null, whitespace and control characters", () => {
+  for (const value of [null, "", " \n\t\r ", "a\u0003b\n😀", "x".repeat(20001), "https://furryfusion.net/example"]) {
+    assert.equal(normalizeFccEvent(raw(1, { detail: value })).detail, value);
+  }
+  for (const value of [undefined, 1, false, [], {}]) {
+    assert.throws(() => normalizeFccEvent(raw(1, { detail: value })), /FCC_INVALID_DETAIL/);
+  }
+  const missing: Record<string, unknown> = raw(1);
+  delete missing.detail;
+  assert.throws(() => normalizeFccEvent(missing), /FCC_INVALID_DETAIL/);
+});
 test("all upstream failures leave DB untouched; empty snapshot also does not call RPC", async () => {
   for (
     const f of [
@@ -203,6 +214,34 @@ test("all upstream failures leave DB untouched; empty snapshot also does not cal
       }),
     );
     assert.equal(writes, 0);
+  }
+});
+test("a valid empty FCC inventory fails explicitly and never invokes the database", async () => {
+  let writes = 0;
+  const h = createSyncHandler({
+    secret: () => "secret",
+    token: () => "fixture-token",
+    fetchImpl: api([], 20),
+    sync: async () => { writes++; return {}; },
+  });
+  const response = await h(new Request("https://local", {
+    method: "POST", headers: { Authorization: "Bearer test", "x-function-secret": "secret" },
+  }));
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { success: false, error: "FCC_EMPTY_SNAPSHOT" });
+  assert.equal(writes, 0);
+});
+test("complete snapshot accepts a nonnegative FCC-only deactivation receipt", async () => {
+  for (const count of [0, 2, -1, 1.5, null]) {
+    const h = createSyncHandler({
+      secret: () => "secret", token: () => "fixture-token",
+      fetchImpl: api([raw(1)], 20),
+      sync: async () => ({upserted: 1, deactivated: count}),
+    });
+    const response = await h(new Request("https://local", {
+      method: "POST", headers: {Authorization: "Bearer test", "x-function-secret": "secret"},
+    }));
+    assert.equal(response.status, count === 0 || count === 2 ? 200 : 500);
   }
 });
 test("sync preserves entry auth and forbids any empty override", async () => {
@@ -272,4 +311,20 @@ test("HTTP 200 explicit success=false or error flag rejects otherwise valid inve
       /FCC_BUSINESS_ERROR/,
     );
   }
+});
+
+test('NUL in an otherwise valid FCC snapshot is rejected before database writes', async () => {
+  let writes = 0;
+  const h = createSyncHandler({
+    secret: () => 'secret', token: () => 'fixture-token',
+    fetchImpl: api([raw(1, { detail: 'before\0after' })], 20),
+    sync: async () => { writes++; return { upserted: 1, deactivated: 0 }; },
+  });
+  const r = await h(new Request('https://local', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer test', 'x-function-secret': 'secret' },
+  }));
+  assert.equal(r.status, 422);
+  assert.equal((await r.json()).error, 'FCC_POSTGRES_NUL');
+  assert.equal(writes, 0);
 });
