@@ -9,7 +9,7 @@
  const corsHeaders = {
 --- a/lib/furry_event_api.dart
 +++ b/lib/furry_event_api.dart
-@@ -2,6 +2,15 @@
+@@ -2,6 +2,16 @@
  import 'package:flutter/foundation.dart';
  import 'package:http/http.dart' as http;
  import 'package:supabase_flutter/supabase_flutter.dart';
@@ -18,8 +18,9 @@
 +String? safeFurryEventUrl(dynamic value) {
 +  final uri = Uri.tryParse(value?.toString().trim() ?? '');
 +  if (uri == null || !['https', 'http'].contains(uri.scheme) || uri.host.isEmpty) return null;
-+  final host = uri.host.toLowerCase();
++  final host = uri.host.toLowerCase().replaceFirst(RegExp(r'\.$'), '');
 +  if (host == 'furryfusion.net' || host.endsWith('.furryfusion.net')) return null;
++  if (host == 'sunland-data-worker.liuxizekali.workers.dev') return null;
 +  return uri.toString();
 +}
 
