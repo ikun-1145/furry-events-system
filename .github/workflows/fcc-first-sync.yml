@@ -1,0 +1,34 @@
+name: FCC First Sync (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type FCC to confirm the database and Edge Function are ready'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fcc-first-sync-manual
+  cancel-in-progress: false
+
+jobs:
+  first-sync:
+    if: ${{ github.ref == 'refs/heads/main' && inputs.confirm == 'FCC' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trigger one FCC sync without retry
+        env:
+          SUPABASE_FUNCTION_URL: ${{ secrets.SUPABASE_FUNCTION_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          FUNCTION_SECRET: ${{ secrets.FUNCTION_SECRET }}
+        run: |
+          set -euo pipefail
+          set +x
+          [[ "$SUPABASE_FUNCTION_URL" == 'https://klyrasrqgxijwrxuoevj.supabase.co/functions/v1/fetch-furry-events' ]] || { echo 'Unexpected sync endpoint'; exit 1; }
+          python3 scripts/fcc-manual-trigger.py
