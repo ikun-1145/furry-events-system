@@ -49,6 +49,7 @@ export function createSyncHandler(
     sync: (snapshot: FccSnapshot) => Promise<unknown>;
     fetchImpl?: typeof fetch;
     now?: () => Date;
+    pageSize?: number;
   },
 ) {
   return async (req: Request): Promise<Response> => {
@@ -67,6 +68,7 @@ export function createSyncHandler(
       const snapshot = await fetchFccSnapshot(deps.token(), {
         fetchImpl: deps.fetchImpl,
         now: deps.now,
+        pageSize: deps.pageSize,
       });
       // An empty inventory is not a successful replacement and must never call the DB.
       if (snapshot.events.length === 0) {
