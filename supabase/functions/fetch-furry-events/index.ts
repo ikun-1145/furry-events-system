@@ -5,6 +5,8 @@ import { createSyncHandler } from "../_shared/handlers.ts";
 const handler = createSyncHandler({
   secret: () => Deno.env.get("FUNCTION_SECRET") ?? "",
   token: () => Deno.env.get("FCC_API_TOKEN") ?? "",
+  // Fewer requests while preserving two independent complete snapshot passes.
+  pageSize: 50,
   async sync(snapshot) {
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
